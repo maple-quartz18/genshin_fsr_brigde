@@ -27,6 +27,7 @@ struct State
 };
 
 State g_state;
+std::uint64_t g_scale_switch = 0;
 
 bool close(float a, float b)
 {
@@ -116,6 +117,20 @@ void observe(const Sample &sample)
         last_logged_raw = g_state.raw_period;
         last_logged_bridge = g_state.bridge_period;
     }
+}
+
+void observe_render_scale(float scale)
+{
+    ++g_scale_switch;
+    char msg[256] {};
+    std::snprintf(msg, sizeof(msg),
+                  "jitter_sequence scale_switch id=%llu scale=%.3f "
+                  "before_render=%ux%u before_raw_period=%u before_bridge_period=%u",
+                  static_cast<unsigned long long>(g_scale_switch),
+                  static_cast<double>(scale),
+                  g_state.last_w, g_state.last_h,
+                  g_state.raw_period, g_state.bridge_period);
+    LOG_INFO(blog::cat::upscale, msg);
 }
 }
 #endif

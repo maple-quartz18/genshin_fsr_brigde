@@ -20,6 +20,7 @@
 
 #include "detours.h"
 #include "RenderScaleMenu.h"
+#include "JitterSequenceDiag.h"
 #include "PerfProbe.h"
 
 namespace
@@ -742,6 +743,8 @@ bool apply_selected_render_scale(void *instance, const char *source)
     const auto previous = g_last_written_index.exchange(index, std::memory_order_acq_rel);
     if (previous != index)
     {
+        jitter_sequence_diag::observe_render_scale(
+            k_render_scales[static_cast<std::size_t>(index)]);
         log_line(std::string("render_scale_written source=") + source +
             " index=" + std::to_string(index) +
             " scale=" + std::to_string(k_render_scales[static_cast<std::size_t>(index)]));

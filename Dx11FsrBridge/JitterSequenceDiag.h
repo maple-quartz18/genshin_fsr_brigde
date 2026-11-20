@@ -18,7 +18,9 @@ struct Sample
 
 #if defined(DX11FSRBRIDGE_ENABLE_DIAGNOSTICS)
 void observe(const Sample &sample);
+void observe_render_scale(float scale);
 #else
 inline void observe(const Sample &) {}
+inline void observe_render_scale(float) {}
 #endif
 }
