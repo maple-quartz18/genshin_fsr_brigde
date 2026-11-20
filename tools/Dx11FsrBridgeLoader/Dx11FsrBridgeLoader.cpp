@@ -13,9 +13,10 @@ void log_load_error(const wchar_t *name, const wchar_t *path)
     wchar_t message[512] = {};
     const DWORD length = FormatMessageW(
         FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-        nullptr, error, 0, message, static_cast<DWORD>(std::size(message)), nullptr);
+        nullptr, error, 0, message,
+        static_cast<DWORD>(sizeof(message) / sizeof(message[0])), nullptr);
     wchar_t line[1024] = {};
-    swprintf_s(line, std::size(line),
+    swprintf_s(line, sizeof(line) / sizeof(line[0]),
                L"Dx11FsrBridgeLoader: failed to load %s path=%s error=%lu message=%s\n",
                name, path, static_cast<unsigned long>(error),
                length != 0 ? message : L"(unknown)");
