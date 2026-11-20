@@ -249,3 +249,30 @@ jobs:
             if (-not $uni.Contains($needle)) { throw "NGX config string '$needle' missing from $dll" }
           }
           Write-Host 'NGX config strings present in binary'
+
+      - name: Configure (NGX ON diagnostics)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $kit = Join-Path $env:GITHUB_WORKSPACE 'OptiScaler-src\external\FidelityFX-SDK-v2\Kits\FidelityFX'
+          cmake -S Dx11FsrBridge -B build-on-diag -G "NMake Makefiles" `
+              -DCMAKE_BUILD_TYPE=Debug `
+              -DDX11FSRBRIDGE_ENABLE_NGX=ON `
+              -DDX11FSRBRIDGE_DIAGNOSTICS=ON `
+              -DFFX_SDK_KIT_ROOT="$kit"
+
+      - name: Build (NGX ON diagnostics)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cmake --build build-on-diag
+          $dll = 'build-on-diag\Dx11FsrBridge.dll'
+          if (-not (Test-Path $dll)) { throw "expected $dll" }
+          Write-Host "Diagnostic DLL: $((Get-Item $dll).Length) bytes"
+
+      - name: Upload NGX diagnostic bridge
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: Dx11FsrBridge-NGX-ON-Diagnostics
+          path: build-on-diag/Dx11FsrBridge.dll
+          if-no-files-found: error
