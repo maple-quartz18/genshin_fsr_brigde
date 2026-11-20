@@ -52,7 +52,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
 
       # 取得 OptiScaler 源码树（提供 Dx11FsrBridge 需要的 FidelityFX SDK 头文件）。
       # 只初始化 FidelityFX-SDK-v2 一个子模块：其余子模块（vulkan/spdlog/xess 等）

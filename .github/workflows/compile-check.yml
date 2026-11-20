@@ -34,7 +34,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
 
       - name: Fetch OptiScaler source tree (FidelityFX SDK headers)
         shell: pwsh
@@ -137,7 +137,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
 
       - name: Fetch OptiScaler source tree (FidelityFX SDK headers)
         shell: pwsh
