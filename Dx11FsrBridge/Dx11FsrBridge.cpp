@@ -17,6 +17,7 @@
 #include "Ffx12Backend.h"
 #include "GpuBackendPick.h" // Ffx12Backend=auto 的型号判据（纯 header，零依赖）
 #include "NgxBackend.h"   // ngx::set_*（D13 九键 + NgxCrossKeyReuse = 十个键）。十个 setter 都有消费者；
+#include "JitterSequenceDiag.h"
                           // 本头不含 NGX SDK 头，故 OFF 构型包含它也安全（REQ-08），
                           // 但下面所有 ngx:: 调用点都被 DX11FSRBRIDGE_ENABLE_NGX 守卫。
 // A 阶段（2026-11-10）：NGX 参数映射的**纯计算层**（零 D3D / 零 NGX / 零全局）。
@@ -12825,6 +12826,19 @@ bool try_fsr2_translation_draw(
                 }
                 st->prev_jx = jit_src_x;
                 st->prev_jy = jit_src_y;
+#if defined(DX11FSRBRIDGE_ENABLE_DIAGNOSTICS)
+                jitter_sequence_diag::observe(jitter_sequence_diag::Sample {
+                    call_params.instance,
+                    call_params.frame_index,
+                    sdk_in.render_w,
+                    sdk_in.render_h,
+                    call_params.jitter_x,
+                    call_params.jitter_y,
+                    sdk_in.jitter_x,
+                    sdk_in.jitter_y,
+                    sdk_in.reset ? 1 : 0,
+                });
+#endif
 #if defined(DX11FSRBRIDGE_ENABLE_DIAGNOSTICS)
                 // 【仅诊断 · B125】记录**本帧实际喂进去**的抖动 + 它的新鲜度。
                 // 判据本体是纯函数 `classify_jitter_freshness`（可离线单测），

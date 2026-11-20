@@ -68,6 +68,7 @@
 // 由 NgxParamMapTest.cpp 做离线位级回归（NGX=OFF 也能构建）。
 #include "NgxParamMap.h"
 #include "NgxProviderPick.h"   // 实现来源选择（纯函数，零平台依赖；PR A / A2）
+#include "JitterSequenceDiag.h"
 // ★ 2026-11-13（独立审查第 1 条）：白名单 rc 失败时必须回报"累积 pass 未被替换"，
 //   否则 FSR2 族预处理 pass 会继续被跳过、而这一路没有桥输出 ⇒ 冻帧到 500ms 过期。
 //   为什么**可以**从这里直接调（跨模块耦合的评估结论）：
@@ -3340,7 +3341,13 @@ static void log_ngx_inst_switch(std::uint64_t from, std::uint64_t to, std::uint6
                  L"ngx_inst switch from=0x%llX to=0x%llX rebuild_us=%d",
                  static_cast<unsigned long long>(from),
                  static_cast<unsigned long long>(to),
-                 static_cast<int>(rebuild_us));
+                  static_cast<int>(rebuild_us));
+#if defined(DX11FSRBRIDGE_ENABLE_DIAGNOSTICS)
+    LOG_INFO(blog::cat::upscale,
+             "jitter_sequence ngx_instance_rebuild from=" + std::to_string(from) +
+             " to=" + std::to_string(to) +
+             " rebuild_us=" + std::to_string(rebuild_us));
+#endif
 }
 
 // 跨 key 复用（NgxCrossKeyReuse）：key 变了但尺寸/格式全等时复用现有实例，

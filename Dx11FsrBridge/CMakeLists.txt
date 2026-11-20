@@ -130,6 +130,7 @@ add_library(Dx11FsrBridge SHARED
     TransparentJitterHook.cpp
     Ffx12Backend.cpp
     NgxParamMap.cpp
+    JitterSequenceDiag.cpp
     NgxProviderPick.cpp
 )
 
