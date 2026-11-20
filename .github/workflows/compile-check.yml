@@ -59,7 +59,7 @@ jobs:
           $src = 'tools\Dx11FsrBridgeLoader'
           cl /nologo /LD /O2 `
             "$src\Dx11FsrBridgeLoader.cpp" `
-            /link /DEF:"$src\Dx11FsrBridgeLoader.def" `
+            /link /DEF:"$src\Dx11FsrBridgeLoader.def" version.lib `
             /OUT:"$src\Dx11FsrBridgeLoader.asi"
           if (-not (Test-Path "$src\Dx11FsrBridgeLoader.asi")) {
             throw 'ASI loader artifact was not produced'
