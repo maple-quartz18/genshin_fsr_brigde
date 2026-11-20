@@ -73,7 +73,7 @@ $configValues = [ordered]@{
     'Enabled'                   = '1'
     'Ffx12'                     = '1'   # 代码内建缺省是 0 ⇒ 必须显式写 1（删掉 = 静默关闭）
     'Ffx12Version'              = 'ffx12-fsr4.x'
-    'RenderScaleMenu'           = '1'   # 渲染精度 hook 总开关；显式写入避免"键不存在→依赖缺省"
+    'RenderScaleMenu'           = '1'   # 渲染精度 hook 总开关；可用档位从 0.3 开始，排除 0.2 及以下
     # ---- 2. 透明队列抖动修复（正式功能，默认开）/ TransparentJitter ----
     # 旧键 JitterFlag* 系列（Probe / Force / ProbeFrames / Hotkey）**已从源码移除**：
     # 正式版 DLL 里连键名都不存在，写进 ini **没有任何效果**，也不会再打印迁移告警。

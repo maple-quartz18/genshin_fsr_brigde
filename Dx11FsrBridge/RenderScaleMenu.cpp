@@ -28,20 +28,20 @@ using build_cmd_buffers_fn = void(__fastcall *)(void *);
 using update_inner_target_fn = void(__fastcall *)(void *);
 using get_text_fn = void *(__fastcall *)(void *);
 
-constexpr std::array<float, 9> k_render_scales {
-    0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 0.999f
+constexpr std::array<float, 8> k_render_scales {
+    0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 0.999f
 };
 
-constexpr std::array<const wchar_t *, 9> k_native_labels {
-    L"0.6", L"0.8", L"0.9", L"1.0", L"1.1", L"1.2", L"1.3", L"1.4", L"1.5"
+constexpr std::array<const wchar_t *, 8> k_native_labels {
+    L"0.8", L"0.9", L"1.0", L"1.1", L"1.2", L"1.3", L"1.4", L"1.5"
 };
 
-constexpr std::array<const wchar_t *, 9> k_bridge_labels {
-    L"0.2", L"0.3", L"0.4", L"0.5", L"0.6", L"0.7", L"0.8", L"0.9", L"0.999"
+constexpr std::array<const wchar_t *, 8> k_bridge_labels {
+    L"0.3", L"0.4", L"0.5", L"0.6", L"0.7", L"0.8", L"0.9", L"0.999"
 };
 
-constexpr std::array<float, 9> k_native_scales {
-    0.6f, 0.8f, 0.9f, 1.0f, 1.1f, 1.2f, 1.3f, 1.4f, 1.5f
+constexpr std::array<float, 8> k_native_scales {
+    0.8f, 0.9f, 1.0f, 1.1f, 1.2f, 1.3f, 1.4f, 1.5f
 };
 
 // These signatures are unique among the executable sections of the current 7.0 game binary.
@@ -251,7 +251,7 @@ void save_selection_cache(std::int32_t index)
     std::ofstream output(selection_cache_path(), std::ios::trunc);
     if (!output)
         return;
-    output << "version 1\nindex " << index << "\n";
+    output << "version 2\nindex " << index << "\n";
 }
 
 void load_selection_cache()
@@ -261,10 +261,13 @@ void load_selection_cache()
         return;
 
     std::string key;
+    std::int32_t version = 0;
     std::int32_t index = -1;
     while (input >> key)
     {
-        if (key == "index")
+        if (key == "version")
+            input >> version;
+        else if (key == "index")
             input >> index;
         else
         {
@@ -272,7 +275,7 @@ void load_selection_cache()
             input >> ignored;
         }
     }
-    if (index < 0 || index >= static_cast<std::int32_t>(k_render_scales.size()))
+    if (version != 2 || index < 0 || index >= static_cast<std::int32_t>(k_render_scales.size()))
         return;
 
     g_selected_index.store(index, std::memory_order_release);
@@ -854,7 +857,7 @@ DWORD WINAPI initialize_menu(void *)
 
     log_line("hook_ready mode=feature_query update_inner_target=" + std::to_string(
         g_original_update_inner_target != nullptr ? 1 : 0) +
-        " scales=0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,0.999");
+        " scales=0.3,0.4,0.5,0.6,0.7,0.8,0.9,0.999");
     return 0;
 }
 }
