@@ -5,7 +5,7 @@
 > **改动历史不在这里**：某段代码为什么是现在这样，用 `git log` / `git blame` 查。
 > 条目关闭后直接删除；要留结论就移入文末「已解决」，并注明解决它的提交。
 
-最后更新：2026-11-18
+最后更新：2026-11-20
 
 ---
 
@@ -653,6 +653,42 @@ DLSS，块里报的却是 AMD 的 FFX SDK 与 `FSR?`。读日志的人会据此�
 **相关代码位置**
 
 - `Dx11FsrBridge/NgxBackend.cpp`：`g_params->Get` / `p->Set` 的调用点、`query_dlss_optimal_range` 里传入的回调
+
+---
+
+## 9. AutoExposure 与独立 MV Scale 尚未经过游戏实测
+
+**现状**
+
+- 功能已实现并推送到 `feat/ngx-mv-scale-auto-exposure`：`NgxAutoExposure=1`、
+  `NgxMvLowRes=1`、`NgxMotionScaleX/Y=1.0` 为默认值；AutoExposure 与 MVLowRes 进入 NGX
+  CreateFeature flags，NGX 的 MV Scale 分别按 render width/height 与 X/Y 系数计算。
+- `NgxParamMapTest` 在 macOS C++20 未优化构建通过（3670 checks，0 failures）；
+  GitHub Windows `compile-check.yml` 的 NGX OFF / ON 两个 job 均成功，Run
+  `44708417243`，提交 `2441711`。
+- 尚无原神游戏会话验证新 flags 被实际 provider 接受，也没有画面 A/B 证明自动曝光或 MV 轴向缩放表现正确。
+
+**影响**
+
+- 编译与纯函数测试只能证明位映射和缩放公式，不能证明 NVIDIA NGX 或外部 NGX provider 的运行时契约、
+  运动方向及画面效果。
+- 外部 provider 可能忽略这些 CreateFeature flags，或采用不同的 MV 单位语义；不能把 NVIDIA NGX 的结果外推到外部实现。
+
+**推进需要**
+
+1. 在 `Ffx12Backend=ngx`、`NgxProvider=nvidia` 下记录 `create_feature` 的 flags、
+   `ngx_in` 的实际 MV Scale、`create_feature ok` 与 `EvaluateFeature` 结果，确认默认配置能持续出图。
+2. 固定场景与分辨率，分别比较 `NgxAutoExposure=0/1`，记录高光、暗部和时域残影变化；不要同时改其它 NGX 参数。
+3. 固定其它设置，逐项验证 `(NgxMotionScaleX, NgxMotionScaleY)` 为 `(1,1)`、`(-1,1)`、
+   `(1,-1)`，确认水平和垂直运动方向，并记录实际 render 尺寸及 `ngx_in` 数值。
+4. 如需支持 `NgxProvider=external`，单独对该 provider 重复参数接收与画面验证，不把 NVIDIA 路径结论当作外部实现证据。
+
+**相关代码**
+
+- `Dx11FsrBridge/NgxParamMap.cpp`：`map_create_flags` / `map_ngx_mv_scale`
+- `Dx11FsrBridge/NgxBackend.cpp`：`build_create_flags` / `flags_input_bits` / `dispatch`
+- `Dx11FsrBridge/Dx11FsrBridge.cpp`：NGX INI 配置读取
+- `Dx11FsrBridge/Dx11FsrBridge.package.ini`、`scripts/Deploy-Bridge.ps1`
 
 ---
 
