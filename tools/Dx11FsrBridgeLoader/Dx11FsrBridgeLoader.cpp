@@ -119,12 +119,21 @@ HMODULE load_sibling(const wchar_t *name)
     return module;
 }
 
+HMODULE load_bridge()
+{
+    HMODULE module = load_sibling(L"Dx11FsrBridge.dll");
+    if (module != nullptr)
+        return module;
+    append_log(L"Dx11FsrBridgeLoader: primary bridge failed; trying diagnostics fallback\n");
+    return load_sibling(L"Dx11FsrBridge-NGX-ON-Diagnostics.dll");
+}
+
 void load_plugins()
 {
-    g_bridge = load_sibling(L"Dx11FsrBridge.dll");
+    g_bridge = load_bridge();
     append_log(g_bridge
-        ? L"Dx11FsrBridgeLoader: loaded Dx11FsrBridge.dll\n"
-        : L"Dx11FsrBridgeLoader: failed to load Dx11FsrBridge.dll\n");
+        ? L"Dx11FsrBridgeLoader: bridge loaded\n"
+        : L"Dx11FsrBridgeLoader: failed to load bridge candidates\n");
 
     g_anti_player_mosaic = load_sibling(L"AntiPlayerMosaic.dll");
     append_log(g_anti_player_mosaic
