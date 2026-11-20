@@ -1,6 +1,7 @@
 #include "JitterSequenceDiag.h"
 
 #include <cmath>
+#include <cstdio>
 #include <string>
 
 #include "BridgeLogger.h"
@@ -31,7 +32,6 @@ bool close(float a, float b)
 {
     return std::isfinite(a) && std::isfinite(b) && std::fabs(a - b) < 1.0e-6f;
 }
-#endif
 
 unsigned detect(const Sample *items, unsigned count, bool bridge)
 {
@@ -61,6 +61,7 @@ unsigned detect(const Sample *items, unsigned count, bool bridge)
     return 0;
 }
 }
+#endif
 
 void observe(const Sample &sample)
 {
