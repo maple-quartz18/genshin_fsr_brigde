@@ -71,12 +71,13 @@ void observe(const Sample &sample)
     if (size_changed || instance_changed || sample.reset != 0)
     {
         g_state = State {};
-        LOG_INFO(blog::cat::upscale,
-                 "jitter_sequence window_reset frame=" + std::to_string(sample.frame_index) +
-                 " reason=" + (size_changed ? std::string("render_size") :
-                                (instance_changed ? std::string("instance") : std::string("ngx_reset"))) +
-                 " render=" + std::to_string(sample.render_w) + "x" +
-                 std::to_string(sample.render_h));
+        char msg[256] {};
+        std::snprintf(msg, sizeof(msg),
+                      "jitter_sequence window_reset frame=%u reason=%s render=%ux%u",
+                      sample.frame_index,
+                      size_changed ? "render_size" : (instance_changed ? "instance" : "ngx_reset"),
+                      sample.render_w, sample.render_h);
+        LOG_INFO(blog::cat::upscale, msg);
     }
 
     g_state.samples[g_state.head] = sample;
@@ -102,16 +103,17 @@ void observe(const Sample &sample)
     if (count <= 8 || count % 1021 == 0 || size_changed || instance_changed ||
         sample.reset != 0 || period_changed)
     {
-        LOG_INFO(blog::cat::upscale,
-                 "jitter_sequence sample frame=" + std::to_string(sample.frame_index) +
-                 " inst=" + std::to_string(sample.instance) +
-                 " raw=" + std::to_string(sample.raw_x) + "," + std::to_string(sample.raw_y) +
-                 " bridge=" + std::to_string(sample.bridge_x) + "," + std::to_string(sample.bridge_y) +
-                 " reset=" + std::to_string(sample.reset) +
-                 " render=" + std::to_string(sample.render_w) + "x" +
-                 std::to_string(sample.render_h) +
-                 " raw_period=" + std::to_string(g_state.raw_period) +
-                 " bridge_period=" + std::to_string(g_state.bridge_period));
+        char msg[512] {};
+        std::snprintf(msg, sizeof(msg),
+                      "jitter_sequence sample frame=%u inst=%llu raw=%.6f,%.6f "
+                      "bridge=%.6f,%.6f reset=%d render=%ux%u raw_period=%u bridge_period=%u",
+                      sample.frame_index,
+                      static_cast<unsigned long long>(sample.instance),
+                      static_cast<double>(sample.raw_x), static_cast<double>(sample.raw_y),
+                      static_cast<double>(sample.bridge_x), static_cast<double>(sample.bridge_y),
+                      sample.reset, sample.render_w, sample.render_h,
+                      g_state.raw_period, g_state.bridge_period);
+        LOG_INFO(blog::cat::upscale, msg);
         last_logged_raw = g_state.raw_period;
         last_logged_bridge = g_state.bridge_period;
     }

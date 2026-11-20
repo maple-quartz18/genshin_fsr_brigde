@@ -3,7 +3,6 @@
 
 namespace jitter_sequence_diag
 {
-#if defined(DX11FSRBRIDGE_ENABLE_DIAGNOSTICS)
 struct Sample
 {
     std::uint64_t instance = 0;
@@ -17,9 +16,9 @@ struct Sample
     int reset = 0;
 };
 
+#if defined(DX11FSRBRIDGE_ENABLE_DIAGNOSTICS)
 void observe(const Sample &sample);
 #else
-struct Sample {};
 inline void observe(const Sample &) {}
 #endif
 }
