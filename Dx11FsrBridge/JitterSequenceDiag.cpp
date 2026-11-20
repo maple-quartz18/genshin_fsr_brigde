@@ -6,9 +6,9 @@
 
 #include "BridgeLogger.h"
 
+#if defined(DX11FSRBRIDGE_ENABLE_DIAGNOSTICS)
 namespace jitter_sequence_diag
 {
-#if defined(DX11FSRBRIDGE_ENABLE_DIAGNOSTICS)
 namespace
 {
 constexpr unsigned kHistory = 512;
@@ -61,8 +61,6 @@ unsigned detect(const Sample *items, unsigned count, bool bridge)
     return 0;
 }
 }
-#endif
-
 void observe(const Sample &sample)
 {
     const bool size_changed = g_state.last_w != 0 &&
@@ -120,3 +118,4 @@ void observe(const Sample &sample)
     }
 }
 }
+#endif
