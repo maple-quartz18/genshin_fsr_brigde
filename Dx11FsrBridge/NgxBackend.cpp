@@ -121,6 +121,8 @@ static_assert(ngx_param_map::kFlagMvJittered == NVSDK_NGX_DLSS_Feature_Flags_MVJ
               "NgxParamMap::kFlagMvJittered 与 NGX 头不一致");
 static_assert(ngx_param_map::kFlagDepthInverted == NVSDK_NGX_DLSS_Feature_Flags_DepthInverted,
               "NgxParamMap::kFlagDepthInverted 与 NGX 头不一致");
+static_assert(ngx_param_map::kFlagAutoExposure == NVSDK_NGX_DLSS_Feature_Flags_AutoExposure,
+              "NgxParamMap::kFlagAutoExposure 与 NGX 头不一致");
 
 namespace ngx {
 
@@ -511,6 +513,10 @@ bool                      g_dt_enabled    = true;
 bool                      g_use_reactive  = false;
 // §3.6.5 深度值域归一化倍数（b0.x）。默认 1.0 = 与改动前逐字节等价（见 set_depth_scale 注释）。
 float                     g_depth_scale = 1.0f;
+bool                      g_auto_exposure = true;
+bool                      g_mv_low_res = true;
+float                     g_motion_scale_x = 1.0f;
+float                     g_motion_scale_y = 1.0f;
 int                       g_log_level     = 1;
 bool                      g_passthrough   = false;
 
@@ -562,6 +568,7 @@ enum NgxConfigWarn : unsigned {
     //   1.0 恰好也是"压根没写这个键"的默认值，非法值回退 1.0 之后，用户看到的行为与
     //   "旋钮没生效"完全一样，没有位名就分不出「输入被拒」与「输入正常且等于默认」。
     kWarnDepthScaleInvalid = 1u << 3,  // NgxDepthScale 非法值 → 回退 1.0
+    kWarnMotionScaleInvalid = 1u << 4,
 };
 unsigned g_config_warn = 0;
 
@@ -966,6 +973,7 @@ std::string warn_to_string(unsigned int bits)
         { kWarnPresetInvalid,  "preset_invalid" },
         { kWarnProviderInvalid, "provider_invalid" },
         { kWarnDepthScaleInvalid, "depth_scale_invalid" },
+        { kWarnMotionScaleInvalid, "motion_scale_invalid" },
     };
     if (bits == 0)
         return std::string {};
@@ -1396,6 +1404,9 @@ static void log_config_snapshot()
     // 第 5 行：FrameTimeDelta 与 reactive。
     log_ngx_error(L"ngx_core dt_flag=%d reactive=%d",
                   g_dt_enabled ? 1 : 0, g_use_reactive ? 1 : 0);
+    log_ngx_error(L"ngx_core auto_exposure=%d mv_low_res=%d motion_scale=%.3f,%.3f",
+                  g_auto_exposure ? 1 : 0, g_mv_low_res ? 1 : 0,
+                  static_cast<double>(g_motion_scale_x), static_cast<double>(g_motion_scale_y));
 
     // 2026-11-10（B154）：provider 来源（NgxProvider）。与成功时的 "provider resolved=" 分开命名：
     //   这一行说"配置要什么"，那一行说"实际用了谁" —— 两行一起才能区分"配置没生效"与"来源没找到"。
@@ -2297,6 +2308,8 @@ enum : unsigned {
     kFlagsInputIsHdr        = 1u << 0,
     kFlagsInputDepthInvert  = 1u << 1,
     kFlagsInputMvJittered   = 1u << 2,
+    kFlagsInputMvLowRes     = 1u << 3,
+    kFlagsInputAutoExposure = 1u << 4,
 };
 
 // M4-a 的热路径取值器：**只算位图，不打日志、不碰 NGX 参数袋**。
@@ -2315,6 +2328,8 @@ static unsigned flags_input_bits(DXGI_FORMAT color_fmt)
     if (resolve_is_hdr(color_fmt, nullptr))          bits |= kFlagsInputIsHdr;
     if (ffx12::depth_inverted())                     bits |= kFlagsInputDepthInvert;
     if (ffx12::motion_vectors_jittered())            bits |= kFlagsInputMvJittered;
+    if (g_mv_low_res)                                bits |= kFlagsInputMvLowRes;
+    if (g_auto_exposure)                             bits |= kFlagsInputAutoExposure;
     return bits;
 }
 
@@ -2339,8 +2354,8 @@ struct CreateFlagsEval
                                      //     的 MINOR-1 注释），不是撕裂。
 };
 
-// 3.8.2：九 bit 只设四个。绝不设 DoSharpening（SR_DEPRECATED_SHARPENING 在 MSVC 下
-// 展开为 [[deprecated]]，引用即 C4996）；AutoExposure 也不设（桥从不提供曝光纹理）。
+// 3.8.2：绝不设 DoSharpening（SR_DEPRECATED_SHARPENING 在 MSVC 下
+// 展开为 [[deprecated]]，引用即 C4996）。
 // ★ 这是 **CreateFlags 的唯一构造点**：flags 与 bits 在同一个函数体内、对同一组输入求值一次。
 //   （flags_input_bits() 是它的「只算位图」精简版，只给每帧的重建判据用；
 //     两者必须对同一组输入给出同一个 bits —— 见 flags_input_bits 的注释。）
@@ -2373,8 +2388,7 @@ static CreateFlagsEval build_create_flags(DXGI_FORMAT color_fmt, bool log_decisi
     // ★ MINOR-1：把探测状态一并取出 ⇒ 决策（is_hdr）与下方日志（sw_known/sw_hdr）来自同一次 load。
     ev.is_hdr  = resolve_is_hdr(color_fmt, &ev.hdr_src, &ev.sw_state);
     // ---- A 阶段（2026-11-10）：flags 的决策部分搬进纯函数 NgxParamMap.cpp ----
-    // ★ 逐位等价：同一组输入（is_hdr / depth_inverted / mv_jittered），输出与
-    //   重构前的四行 `|=` **完全相同**，包括那行**恒设**的 MVLowRes。
+    // 2026-11-20：MVLowRes 与 AutoExposure 由配置控制，画面效果待实机验证。
     //   对照 oracle（重构前原代码另抄一份）在 NgxParamMapTest.cpp 第 [1] 节。
     // ★ 这里只搬"计算"，不搬"取值来源"：is_hdr 仍来自 resolve_is_hdr（本 TU 的
     //   全局探测），另两位仍来自 ffx12::（ini 配置）—— 纯函数不读全局。
@@ -2382,6 +2396,8 @@ static CreateFlagsEval build_create_flags(DXGI_FORMAT color_fmt, bool log_decisi
     cf.is_hdr         = ev.is_hdr;
     cf.depth_inverted = ffx12::depth_inverted();
     cf.mv_jittered    = ffx12::motion_vectors_jittered();
+    cf.mv_low_res     = g_mv_low_res;
+    cf.auto_exposure  = g_auto_exposure;
     ev.flags = ngx_param_map::map_create_flags(cf).flags;
     // ---- 同一组输入的位图（M4-a）----
     // ★ 位图**保持原样不搬**：它是本文件的日志/重建判据，不属于 NGX 参数映射；
@@ -2390,7 +2406,8 @@ static CreateFlagsEval build_create_flags(DXGI_FORMAT color_fmt, bool log_decisi
     if (ev.is_hdr)                              ev.bits |= kFlagsInputIsHdr;
     if (ffx12::depth_inverted())                ev.bits |= kFlagsInputDepthInvert;
     if (ffx12::motion_vectors_jittered())       ev.bits |= kFlagsInputMvJittered;
-    // 1<<4 Reserved_0 / 1<<5 DoSharpening / 1<<6 AutoExposure / 1<<7 AlphaUpscaling / 1<<8 Reserved_8 一律不设
+    if (g_mv_low_res)                           ev.bits |= kFlagsInputMvLowRes;
+    if (g_auto_exposure)                        ev.bits |= kFlagsInputAutoExposure;
     // T-8：把决策来源打进日志（便于实机排查）。
     // ★★ M1 修复：**必须是 blog::Level::Error**。NgxLogLevel 默认 1 = error，而
     //   ngx_level_of(Info) = 2 ⇒ Info 档位在默认配置下**永不打印**，本行等于不存在，
@@ -4318,6 +4335,16 @@ void set_use_reactive_mask(bool on)
     g_use_reactive = on;
 }
 
+void set_auto_exposure(bool on) { g_auto_exposure = on; }
+void set_mv_low_res(bool on) { g_mv_low_res = on; }
+void set_motion_scale(float x, float y)
+{
+    if (!ngx_param_map::valid_ngx_mv_scale(x) || !ngx_param_map::valid_ngx_mv_scale(y))
+        g_config_warn |= kWarnMotionScaleInvalid;
+    g_motion_scale_x = ngx_param_map::valid_ngx_mv_scale(x) ? x : 1.0f;
+    g_motion_scale_y = ngx_param_map::valid_ngx_mv_scale(y) ? y : 1.0f;
+}
+
 void set_depth_scale(float scale)
 {
     // §3.13 的纪律：非法值回退并记录，不静默。0 / 负 / NaN 都无物理意义。
@@ -4740,6 +4767,8 @@ bool dispatch(const ffx12::FrameInput &in, ID3D11DeviceContext *ctx,
     ri.frame_reset    = in.reset;
     ri.instance_first = inst.first;
     const int reset_val = ngx_param_map::map_reset(ri) ? 1 : 0;
+    const auto ngx_mv = ngx_param_map::map_ngx_mv_scale(in.render_w, in.render_h,
+                                                        g_motion_scale_x, g_motion_scale_y);
 
     // ---- ngx_in 行（§3.10.1 输入侧；info；闸门 count <= 8 || count % kNgxJitterSamplePeriod）----
     // ★ fmt 的三个值取自**实际输入纹理的 GetDesc()**，不得凭空构造。
@@ -4754,7 +4783,7 @@ bool dispatch(const ffx12::FrameInput &in, ID3D11DeviceContext *ctx,
         log_ngx_core(blog::Level::Info,
                      L"ngx_in jitter=%.6f,%.6f mvscale=%.1f,%.1f reset=%d dt=%.2f fmt=%d/%d/%d",
                      static_cast<double>(in.jitter_x), static_cast<double>(in.jitter_y),
-                     static_cast<double>(in.motion_scale_x), static_cast<double>(in.motion_scale_y),
+                     static_cast<double>(ngx_mv.x), static_cast<double>(ngx_mv.y),
                      reset_val,
                      static_cast<double>(in.frame_time_delta_ms),
                      static_cast<int>(cdesc.Format), static_cast<int>(ddesc.Format),
@@ -4769,9 +4798,9 @@ bool dispatch(const ffx12::FrameInput &in, ID3D11DeviceContext *ctx,
     // 5：jitter —— **像素单位，直接透传**（不乘 render_w、不加 0.5，D4）
     g_params->Set(NVSDK_NGX_Parameter_Jitter_Offset_X, in.jitter_x);
     g_params->Set(NVSDK_NGX_Parameter_Jitter_Offset_Y, in.jitter_y);
-    // 6：motion 缩放 —— 原样透传（符号已由 E3 确证，D5）
-    g_params->Set(NVSDK_NGX_Parameter_MV_Scale_X, in.motion_scale_x);
-    g_params->Set(NVSDK_NGX_Parameter_MV_Scale_Y, in.motion_scale_y);
+    // 2026-11-20：NGX 专用系数不影响 native 路径；效果需实机验证。
+    g_params->Set(NVSDK_NGX_Parameter_MV_Scale_X, ngx_mv.x);
+    g_params->Set(NVSDK_NGX_Parameter_MV_Scale_Y, ngx_mv.y);
     // 7：Reset —— in.reset 或本实例首帧（F-32）。int 重载。
     g_params->Set(NVSDK_NGX_Parameter_Reset, reset_val);
     // 8：Width / Height —— **每帧也要设**（不只 CreateFeature），取当前实例的重建尺寸
@@ -4782,7 +4811,7 @@ bool dispatch(const ffx12::FrameInput &in, ID3D11DeviceContext *ctx,
     g_params->Set(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Height, inst.rh);
     // 10：Exposure_Scale **恒 1.0f**；与第 11 项是两个不同参数，都要设
     g_params->Set(NVSDK_NGX_Parameter_DLSS_Exposure_Scale, 1.0f);
-    // 11：Pre_Exposure = in.pre_exposure（当前恒 1.0）。**不设 Flags_AutoExposure**（D8）
+    // 11：Pre_Exposure = in.pre_exposure（当前恒 1.0）。
     g_params->Set(NVSDK_NGX_Parameter_DLSS_Pre_Exposure, in.pre_exposure);
     // 12：FrameTimeDeltaInMsec —— **仅当 NgxSetFrameTimeDelta=1**。桥侧已 clamp [1,100]，
     //     此处**不重复 clamp**（B-4：过滤会掩盖上游 bug）。

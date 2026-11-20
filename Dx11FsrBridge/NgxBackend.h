@@ -48,6 +48,9 @@ DXGI_FORMAT swapchain_format();
 void set_render_preset(int v);                              // NgxRenderPreset，默认 0（跟随 NGX）
 void set_frame_time_delta(bool on);                         // NgxSetFrameTimeDelta，默认 true
 void set_use_reactive_mask(bool on);                        // NgxUseReactiveMask，默认 false
+void set_auto_exposure(bool on);
+void set_mv_low_res(bool on);
+void set_motion_scale(float x, float y);
 // NgxDepthScale，默认 1.0。深度提取 CS 的值域归一化倍数（b0.x）。
 // ★ 2026-11-17（PR A / A3）：此前 NGX 路径把该系数**硬编码为 1.0**，而 shader
 //   本体支持相乘（Ffx12ShaderSource.h 的 `* g_depth_scale`），FFX 侧也有

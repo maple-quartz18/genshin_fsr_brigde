@@ -53,6 +53,7 @@ constexpr std::uint32_t kFlagIsHdr         = 1u << 0;   // NVSDK_NGX_DLSS_Featur
 constexpr std::uint32_t kFlagMvLowRes      = 1u << 1;   // NVSDK_NGX_DLSS_Feature_Flags_MVLowRes
 constexpr std::uint32_t kFlagMvJittered    = 1u << 2;   // NVSDK_NGX_DLSS_Feature_Flags_MVJittered
 constexpr std::uint32_t kFlagDepthInverted = 1u << 3;   // NVSDK_NGX_DLSS_Feature_Flags_DepthInverted
+constexpr std::uint32_t kFlagAutoExposure  = 1u << 6;
 
 // 与重构前 `NgxBackend.cpp` 的 `build_create_flags()`（§3.8.2）**逐字等价**的决策部分
 // （不含日志、不含 M4-a 位图、不含 resolve_is_hdr 的全局探测）。
@@ -64,13 +65,14 @@ constexpr std::uint32_t kFlagDepthInverted = 1u << 3;   // NVSDK_NGX_DLSS_Featur
 //     if (ffx12::motion_vectors_jittered())       ev.flags |= MVJittered;   // 1<<2，默认不设
 //     if (ffx12::depth_inverted())                ev.flags |= DepthInverted;// 1<<3
 //
-// ★ MVLowRes **恒设**：重构前那一行是**无条件**语句（缩进成 if 块的样子，
-//   但它前面没有 if）—— 这是本层最容易被"顺手整理"掉的一位，单测专门钉它。
+// 2026-11-20：MVLowRes 默认仍开启，调用方可显式选择；自动曝光由调用方指定。
 struct CreateFlagsInput
 {
     bool is_hdr;
     bool depth_inverted;
     bool mv_jittered;
+    bool mv_low_res = true;
+    bool auto_exposure = false;
 };
 
 struct CreateFlagsOutput
@@ -145,6 +147,8 @@ struct MvScaleOutput
 };
 
 MvScaleOutput map_mv_scale(const MvScaleInput &in);
+MvScaleOutput map_ngx_mv_scale(std::uint32_t width, std::uint32_t height, float x, float y);
+bool valid_ngx_mv_scale(float value);
 
 // ===========================================================================
 // d) Reset 判定

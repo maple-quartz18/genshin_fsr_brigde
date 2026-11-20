@@ -4344,6 +4344,19 @@ void load_config()
         GetPrivateProfileIntW(L"Dx11FsrBridge", L"NgxUseReactiveMask", 0, config_path.c_str());
     ngx::set_use_reactive_mask(ngx_react != 0);
 
+    ngx::set_auto_exposure(
+        GetPrivateProfileIntW(L"Dx11FsrBridge", L"NgxAutoExposure", 1, config_path.c_str()) != 0);
+    ngx::set_mv_low_res(
+        GetPrivateProfileIntW(L"Dx11FsrBridge", L"NgxMvLowRes", 1, config_path.c_str()) != 0);
+    {
+        wchar_t x[32] {}, y[32] {};
+        GetPrivateProfileStringW(L"Dx11FsrBridge", L"NgxMotionScaleX", L"1.0", x,
+                                 static_cast<DWORD>(std::size(x)), config_path.c_str());
+        GetPrivateProfileStringW(L"Dx11FsrBridge", L"NgxMotionScaleY", L"1.0", y,
+                                 static_cast<DWORD>(std::size(y)), config_path.c_str());
+        ngx::set_motion_scale(std::wcstof(x, nullptr), std::wcstof(y, nullptr));
+    }
+
     // ---- 键 7b：NgxDepthScale（2026-11-17 增，PR A / A3；默认 1.0）----
     // 深度提取 CS 的值域归一化倍数（b0.x）。默认 1.0 = 与改动前**逐字节等价**。
     // 此前 NGX 路径把它硬编码成 1.0，而 shader 本体支持相乘、FFX 侧也有 setter ——

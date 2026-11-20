@@ -23,17 +23,16 @@ namespace ngx_param_map
 //     if (ffx12::motion_vectors_jittered())       ev.flags |= MVJittered;
 //     if (ffx12::depth_inverted())                ev.flags |= DepthInverted;
 //
-// ★ 位顺序无关（|= 可交换），但**位的集合**必须一模一样：
-//   is_hdr ⇒ bit0；恒有 bit1；mv_jittered ⇒ bit2；depth_inverted ⇒ bit3。
-//   重构前那行 MVLowRes 前面**没有 if**（缩进只是排版），所以它是无条件执行。
+// 2026-11-20：增加可配置的 MVLowRes 和 AutoExposure。
 CreateFlagsOutput map_create_flags(const CreateFlagsInput &in)
 {
     CreateFlagsOutput out {};
     out.flags = 0;
     if (in.is_hdr)            out.flags |= kFlagIsHdr;
-                              out.flags |= kFlagMvLowRes;   // 1<<1，恒设（与重构前那行逐字对应）
+    if (in.mv_low_res)        out.flags |= kFlagMvLowRes;
     if (in.mv_jittered)       out.flags |= kFlagMvJittered;
     if (in.depth_inverted)    out.flags |= kFlagDepthInverted;
+    if (in.auto_exposure)     out.flags |= kFlagAutoExposure;
     return out;
 }
 
@@ -118,6 +117,17 @@ MvScaleOutput map_mv_scale(const MvScaleInput &in)
     out.x = mv_sign * static_cast<float>(in.render_w) * in.motion_scale;
     out.y = mv_sign * static_cast<float>(in.render_h) * in.motion_scale;
     return out;
+}
+
+bool valid_ngx_mv_scale(float value)
+{
+    return std::isfinite(value) && value != 0.0f && std::fabs(value) <= 64.0f;
+}
+
+MvScaleOutput map_ngx_mv_scale(std::uint32_t width, std::uint32_t height, float x, float y)
+{
+    return {static_cast<float>(width) * (valid_ngx_mv_scale(x) ? x : 1.0f),
+            static_cast<float>(height) * (valid_ngx_mv_scale(y) ? y : 1.0f)};
 }
 
 // ---------------------------------------------------------------------------

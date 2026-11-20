@@ -223,6 +223,16 @@ void test_create_flags()
     CHECK(kFlagMvLowRes == 1u << 1);
     CHECK(kFlagMvJittered == 1u << 2);
     CHECK(kFlagDepthInverted == 1u << 3);
+    CHECK(kFlagAutoExposure == 1u << 6);
+    for (int mask = 0; mask < 4; ++mask)
+    {
+        CreateFlagsInput in {};
+        in.mv_low_res = (mask & 1) != 0;
+        in.auto_exposure = (mask & 2) != 0;
+        const auto flags = map_create_flags(in).flags;
+        CHECK(((flags & kFlagMvLowRes) != 0) == in.mv_low_res);
+        CHECK(((flags & kFlagAutoExposure) != 0) == in.auto_exposure);
+    }
 
     // 全开 / 全关的两个具体值（便于人眼核对）。
     {
@@ -462,6 +472,12 @@ void test_jitter_mode3_range()
 // ===========================================================================
 void test_mv_scale()
 {
+    const auto independent = map_ngx_mv_scale(1920, 1080, 0.5f, -2.0f);
+    CHECK(independent.x == 960.0f);
+    CHECK(independent.y == -2160.0f);
+    const auto invalid = map_ngx_mv_scale(1920, 1080, 0.0f, std::numeric_limits<float>::infinity());
+    CHECK(invalid.x == 1920.0f);
+    CHECK(invalid.y == 1080.0f);
     std::printf("[6] map_mv_scale: sign x size x factor vs oracle (bit-exact)\n");
 
     const std::uint32_t sizes[][2] = {

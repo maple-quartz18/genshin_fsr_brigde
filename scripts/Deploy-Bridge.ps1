@@ -127,6 +127,10 @@ $configValues = [ordered]@{
     'NgxRenderPreset'           = '0'   # 0 = 六个 preset 参数都不设（跟随 NGX 自身规则）；5..15 可显式指定
     'NgxSetFrameTimeDelta'      = '1'
     'NgxUseReactiveMask'        = '0'
+    'NgxAutoExposure'           = '1'
+    'NgxMvLowRes'               = '1'
+    'NgxMotionScaleX'           = '1.0'
+    'NgxMotionScaleY'           = '1.0'
     'NgxDepthScale'             = '1.0' # 深度提取归一化倍数（b0.x）。1.0 = 不改行为（默认）；>0 且 <=64。是否要非 1.0 需实机 A/B
     'NgxLogLevel'               = '1'   # 0=全关 1=error（默认，取证行已可见）2=info 3=debug
     'NgxPassthrough'            = '0'
@@ -343,4 +347,3 @@ if (-not $Rollback) {
     Write-Host "  3. hooked D3D11CreateDevice / rtv_bind_target                            ← D3D11 钩子是否装上"
     Write-Host "  4. transparent_jitter_installed ... force=1                              ← 透明队列抖动修复是否生效（正式功能）"
 }
-
