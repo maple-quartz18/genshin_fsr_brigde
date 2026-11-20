@@ -1,6 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <cwchar>
+#include <cstdio>
 #include <vector>
 #include <winver.h>
 
@@ -8,6 +9,25 @@ namespace
 {
 HMODULE g_bridge = nullptr;
 HMODULE g_anti_player_mosaic = nullptr;
+
+void append_log(const wchar_t *message)
+{
+    wchar_t path[MAX_PATH] = {};
+    const DWORD length = GetModuleFileNameW(nullptr, path, MAX_PATH);
+    if (!length || length >= MAX_PATH)
+        return;
+    wchar_t *slash = wcsrchr(path, L'\\');
+    if (!slash)
+        return;
+    slash[1] = L'\0';
+    wcscat_s(path, L"Dx11FsrBridgeLoader.log");
+
+    FILE *file = nullptr;
+    if (_wfopen_s(&file, path, L"ab") != 0 || file == nullptr)
+        return;
+    fwprintf(file, L"%s", message);
+    fclose(file);
+}
 
 void log_load_success(const wchar_t *name, const wchar_t *path, HMODULE module)
 {
@@ -54,7 +74,7 @@ void log_load_success(const wchar_t *name, const wchar_t *path, HMODULE module)
                name, path, static_cast<void *>(module),
                static_cast<unsigned long>(entry_rva),
                static_cast<unsigned long>(image_size), version);
-    OutputDebugStringW(line);
+    append_log(line);
 }
 
 void log_load_error(const wchar_t *name, const wchar_t *path)
@@ -70,7 +90,7 @@ void log_load_error(const wchar_t *name, const wchar_t *path)
                L"Dx11FsrBridgeLoader: failed to load %s path=%s error=%lu message=%s\n",
                name, path, static_cast<unsigned long>(error),
                length != 0 ? message : L"(unknown)");
-    OutputDebugStringW(line);
+    append_log(line);
 }
 
 HMODULE load_sibling(const wchar_t *name)
@@ -102,14 +122,14 @@ HMODULE load_sibling(const wchar_t *name)
 void load_plugins()
 {
     g_bridge = load_sibling(L"Dx11FsrBridge.dll");
-    OutputDebugStringW(g_bridge
-        ? L"Dx11FsrBridgeLoader: loaded Dx11FsrBridge.dll (details above)\n"
-        : L"Dx11FsrBridgeLoader: failed to load Dx11FsrBridge.dll (details above)\n");
+    append_log(g_bridge
+        ? L"Dx11FsrBridgeLoader: loaded Dx11FsrBridge.dll\n"
+        : L"Dx11FsrBridgeLoader: failed to load Dx11FsrBridge.dll\n");
 
     g_anti_player_mosaic = load_sibling(L"AntiPlayerMosaic.dll");
-    OutputDebugStringW(g_anti_player_mosaic
-        ? L"Dx11FsrBridgeLoader: loaded AntiPlayerMosaic.dll (details above)\n"
-        : L"Dx11FsrBridgeLoader: failed to load AntiPlayerMosaic.dll (details above)\n");
+    append_log(g_anti_player_mosaic
+        ? L"Dx11FsrBridgeLoader: loaded AntiPlayerMosaic.dll\n"
+        : L"Dx11FsrBridgeLoader: failed to load AntiPlayerMosaic.dll\n");
 }
 }
 
