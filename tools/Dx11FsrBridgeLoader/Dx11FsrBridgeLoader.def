@@ -1,0 +1,3 @@
+LIBRARY Dx11FsrBridgeLoader
+EXPORTS
+    InitializeASI

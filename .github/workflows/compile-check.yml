@@ -28,6 +28,50 @@ permissions:
   contents: read
 
 jobs:
+  build-loader:
+    name: ASI loader
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7.0.1
+
+      - name: Import MSVC environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
+          $vsPath = & $vswhere -latest -products * `
+              -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+              -property installationPath
+          if (-not $vsPath) { throw 'Visual Studio with C++ tools not found' }
+          $vcvars = Join-Path $vsPath 'VC\Auxiliary\Build\vcvars64.bat'
+          $snapshot = & cmd.exe /c "`"$vcvars`" >nul 2>&1 && set"
+          foreach ($line in $snapshot) {
+            if ($line -match '^([A-Za-z_][A-Za-z0-9_.()]*)=(.*)$') {
+              Add-Content -Path $env:GITHUB_ENV -Value "$($matches[1])=$($matches[2])"
+            }
+          }
+
+      - name: Build ASI loader
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = 'tools\Dx11FsrBridgeLoader'
+          cl /nologo /LD /O2 `
+            "$src\Dx11FsrBridgeLoader.cpp" `
+            /link /DEF:"$src\Dx11FsrBridgeLoader.def" `
+            /OUT:"$src\Dx11FsrBridgeLoader.asi"
+          if (-not (Test-Path "$src\Dx11FsrBridgeLoader.asi")) {
+            throw 'ASI loader artifact was not produced'
+          }
+
+      - name: Upload ASI loader
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: Dx11FsrBridgeLoader-ASI
+          path: tools/Dx11FsrBridgeLoader/Dx11FsrBridgeLoader.asi
+          if-no-files-found: error
+
   # ── 构型 1：NGX OFF（不依赖任何外部专有头文件）──────────────────────────
   build-ngx-off:
     name: NGX OFF
