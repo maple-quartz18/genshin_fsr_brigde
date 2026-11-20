@@ -1,30 +1,27 @@
 # 未解决问题与待办
-
 > 本文件是仓库内**唯一**的待办载体（见 `AGENTS.md` §一.7）。
 > 只记**尚未解决**的事项，每条按「现状 / 影响 / 推进需要什么 / 相关代码位置」写全，读者不看别处也能接手。
 > **改动历史不在这里**：某段代码为什么是现在这样，用 `git log` / `git blame` 查。
 > 条目关闭后直接删除；要留结论就移入文末「已解决」，并注明解决它的提交。
-
 最后更新：2026-11-20
 
 ---
 
-## 1. 长期未定案的路线问题
+## 待办清单
+1 主线遗留
+- [ ] **扩展 DLSS 选档实机验收**：在额外的显卡、DLSS 版本或显示分辨率上复测选档区间，并保存完整 `pq_range` / `pq_select` / `create_feature` 日志；provider 返回共享参数对象时也需验证安全回退。详见第 2 节。
+- [ ] **验证参数失败自愈的真实场景**：找到不依赖临时诊断开关的 `0xBAD00010` 复现条件，验证失败后输入变化可重试、输入不变不重试且画面恢复。详见第 3 节。
+- [ ] **确认 native 模式焦点日志**：运行 native 会话核对焦点块和实际超分模型信息，完成后更新或关闭该条目。详见第 4 节。
+- [ ] **收集 NGX 启动崩溃现场**：取得故障模块及偏移、确认日志文件状态和 `nvngx.log` 是否存在，并在可复现环境保存 dump。详见第 5 节。
+- [ ] **评估并验证 NGX 参数调用守卫**：测量 `Get`、`Set` 和 optimal-settings 回调调用频率；确定守卫方案后用故障注入验证，并测量帧数影响。详见第 6 节。
+- [ ] **复测多实例边界**：实机确认 NGX 多视图时强制单实例的行为，并回归 FFX 多视图接管。详见「已解决」中的 `Ffx12SingleInstance` 条目。
 
-- **DX11 FSR2 导出层路线**：是否把 FSR2 以导出层形式暴露，至今未定案。
-- **OptiScaler `Dx11wDx12` 开启帧生成会闪退**：现象稳定复现，根因未定位。
+2 个人目标
 
-> **2026-11-12 补充（不修改上方原文）**
->
-> 关于「`Dx11wDx12` 开启帧生成会闪退」这条：
-> · 该结论对应 `Ffx12Backend=native`（FFX 后端）下、以 FFX 作为帧生成输入的情形。
-> · 2026-11-12 实测 `Ffx12Backend=ngx` + `FGInput=Upscaler` + `FGOutput=DLSSG` + HDR10，
->   连续多轮累计数万帧无崩溃，说明该闪退不是帧生成整体的限制。
-> · 两条后端路径的 FG 实现不同，需分别验证；上方描述的 FFX 路径闪退本次未复测。
 
 ---
 
-## 2. 代码注释里残留的悬空编号与章节引用
+## 1. 代码注释里残留的悬空编号与章节引用
 
 **现状**
 
@@ -57,7 +54,7 @@
 
 **一、成因判断需要更正**
 
-§2 称这些编号「来自合并前的外部审查与整改记录」。这个说法只对一部分成立：
+§1 称这些编号「来自合并前的外部审查与整改记录」。这个说法只对一部分成立：
 
 | 引用 | 真实来历 |
 |---|---|
@@ -109,73 +106,7 @@ DLL 大小 660,480 B 未变。
 
 ---
 
-## 3. 上游 OptiScaler 的已知缺陷（非本仓库代码，本仓库无法修复）
-
-### 帧生成开启 HDR 时画面发灰（2026-11-12）
-
-**结论：已定位为上游 OptiScaler 缺陷，本仓库已用本地补丁绕过并实测通过。**
-
-**现象**：HDR10 输出 + `FGInput=Upscaler` + `FGOutput=DLSSG`（XeFG 相同）时，画面整体发灰、
-对比度塌陷；把 `FGOutput` 改成 `nofg` 立刻恢复正常。与是否真的开启插帧无关 ——
-即使在菜单里不启用帧生成，只要 `FGOutput != nofg` 就发灰。
-
-**根因**：`Dx11wDx12` 互操作路径下，真正上屏的是 FG 交换链：
-
-```
-Dx11wDx12SC::Present
-  _CopyDx11BackBufferToShared(...)         D3D11 后缓冲 -> 共享纹理
-  _CopyDx11SharedToDx12FGBackBuffer(...)   共享纹理 -> D3D12 FG 后缓冲
-  _fgSwapChain->Present(...)               实际呈现
-```
-
-但 `_fgSwapChain` 的 HDR 色彩空间**从未被设置**：游戏调用的是 `WrappedIDXGISwapChain4::SetColorSpace1`，
-它只转发给真实 D3D11 交换链；`Dx11wDx12SC::SetColorSpace1` 虽实现了转发到 `_fgSwapChain` 的逻辑，
-但实测调用次数为 **0**。于是后缓冲是 PQ 编码、呈现链按 SDR 解释，画面发灰。
-
-**修复**：在 `Dx11wDx12SC::Present` 首帧把 `State::outputColorSpace`（`WrappedIDXGISwapChain4`
-记录的游戏设置值）同步给 `_fgSwapChain`，并加 `_fgColorSpaceSynced` 保证只做一次。
-补丁 +34 行，改 `dx11_with_dx12_sc.cpp` / `.h` 两个文件。
-
-**验证**：修复后日志出现 `FG swapchain colour space set to 12`（12 = `DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020`），
-仅在首帧一次；实机确认不再发灰。对照：官方 nightly-20261106（commit `d6b02459`）原版同样发灰，
-加此补丁后正常。
-
-**上游状态**：已检索 OptiScaler 全部 issue（`HDR+swapchain` / `HDR+framegen` / `HDR state:open` / `washed`），
-无相关报告；上游 master 至今仍是原始实现。
-
-**复现与维护要点**：
-
-- 构建必须用与已部署依赖匹配的 commit。用 master HEAD 会因 59 个提交差异导致 Streamline
-  初始化崩溃（日志 `Exception detected` + 迷你转储）。
-- 项目默认 `PlatformToolset=v143`（VS 2022）；只有 VS 18 的环境需改为 `v145`。
-- 上游若修复此处，本地补丁即可移除。
-
-### 游戏退出后进程卡死需手动结束（2026-11-12）
-
-**结论：上游 OptiScaler 缺陷，本仓库无法从桥侧修复。已归档，不再投入。**
-
-**现象**：关闭游戏窗口后 `YuanShen.exe` 残留，占用 4–5 GB 内存，必须任务管理器
-「结束任务」才能再次启动。每次退出都发生。
-
-**对照实验**：关闭 OptiScaler 后进程 3 秒内正常退出；开启时残留进程表现为
-线程数 1、模块数 0、`Stop-Process -Force` 被拒绝（内核已标记 terminating）。
-
-**根因定位**：OptiScaler.log 最后一行是 `DLSSG_Common::Deactivate`，之后无输出。
-该函数（`framegen/dlssg/DLSSG_Common.cpp:32`）以
-`queueParallelismMode = eBlockPresentingClientQueue` 调用 `sl::DLSSGSetOptions()`，
-上游在此处自带注释 `// Potential crash point on exit`。进程退出期间 present 队列
-已不可用，于是永久阻塞。
-
-配套的三个结构性问题（均在 `dllmain.cpp`）：`DLL_PROCESS_DETACH` 里所有 hook 卸载
-被注释（注释说明"causing issues during shutdown"）；`CreateThread(getGpuInfo)` 句柄
-丢弃无法等待；`isShuttingDown` 只是标志，没有真正的线程 join。
-
-**上游状态**：issue #512（2025-06-09，已关闭）报告了同一现象，维护者回复
-"known issue ... Will be eventually fixed"，此后 5 个月无修复。
-
-**为何不修**：阻塞发生在 OptiScaler 自身的 DLL 卸载路径，桥无法介入。
-
-## 4. DLSS 选档的**实机验收**尚未完成（机制已实现）
+## 2. DLSS 选档的**实机验收**尚未完成（机制已实现）
 
 **现状**
 
@@ -206,7 +137,7 @@ Dx11wDx12SC::Present
 - 实机验收（需有游戏 + N 卡环境）：渲染精度依次取 0.999 / 0.9 / 0.8 / 0.7，每一个都确认
   `create_feature ok=1`，并逐条对账：`pq_range` 六行给出的区间 → `pq_select mode=interval picked=N`
   → `pq=N` → `create_feature ok=1`。
-- 反向对照：把 `NgxProvider` 切到 `external`（OptiScaler），确认若对方返回单例参数对象，
+- 反向对照：把 `NgxProvider` 切到 `external`，确认若 provider 返回单例参数对象，
   日志出现 `pq_query_params ok=0 reason=shared_singleton` 且选档退回比例表 —— 即
   「宁可不查，也不污染共享对象」这条防线确实生效。
 - 记录至少一台机器、一个 DLSS 版本的 `pq_range` 六行原文：这是判断「区间是不是比例」的
@@ -227,7 +158,7 @@ Dx11wDx12SC::Present
     所以即使驱动报「UltraQuality 区间包含你」，也不会把 UltraQuality 送进 NGX。
   - **反向风险仍在**：若区间查询比 `CreateFeature` 宽松，就可能选到更激进的档；
     `perf_quality_for_create` **拦不住**这种情况（它只拦 UltraQuality 一个值）。
-    推断的后果与今天同形：`create_feature ok=0 rc=0xBAD00010`（§5 的重试路径会兜住一部分）。
+    推断的后果与今天同形：`create_feature ok=0 rc=0xBAD00010`（§3 的重试路径会兜住一部分）。
   - 缓解：选档规则是「**最贴近 optimal** 的那一档」（`pick_quality_from_ranges` 按 optimal 尺寸
     与实际 render 尺寸的距离取最近），**不是**「最接近区间上限的那档」⇒ 结果倾向保守而不是激进。
   - 目前唯一能证实或证伪它的手段仍是**实机**：看 `pq_select mode=interval picked=N` 之后是否
@@ -310,20 +241,20 @@ create_feature ok=1 preset=0 rc=0x1
 
 - 全部数据来自**一台机器、一个 DLSS 版本、3840x2160 一种显示分辨率**。
 - 反向对照（`NgxProvider=external` 时对方返回单例 ⇒ `shared_singleton` 回退）**未做**。
-- §4「注意」里那条「区间可能比 CreateFeature 宽松」的反向风险，本轮反而得到**间接佐证**：
+- §2「注意」里那条「区间可能比 CreateFeature 宽松」的反向风险，本轮反而得到**间接佐证**：
   `UltraPerformance` 的区间是 `min=max=1280x720`（一个点），而 0.3/0.4 声明该档仍
   `ok=1` ⇒ `CreateFeature` 的校验确实比 optimal settings 宽松。
 
 ---
 
-## 5. `create_feature` 参数性失败的自愈路径**未经实机验证**（机制已实现）
+## 3. `create_feature` 参数性失败的自愈路径**未经实机验证**（机制已实现）
 
 **现状**
 
 - 机制已实现（见文末「已解决」的《`create_feature` 参数性失败按输入 key 重试》）：`0xBAD00010`
   （`UnsupportedParameter`）失败不再置 `g_release_all`，改为记录一份输入 key；key 变化时重试一次。
 - 已在本机做过一次实机验证（见下方「实机验证」）：失败 → 记录 key → 改精度 → 重试成功，
-  全程无需重启游戏。但那次失败是**用临时诊断开关构造的**——正常路径下 §4 的区间查询
+  全程无需重启游戏。但那次失败是**用临时诊断开关构造的**——正常路径下 §2 的区间查询
   已能选到合法档位，自然状态下构造不出 `0xBAD00010`，因此该路径在真实玩家的
   「参数配错」场景中是否同样表现良好，仍缺观测。
 
@@ -342,7 +273,7 @@ create_feature ok=1 preset=0 rc=0x1
      ★ `retry_eligible=1` 这个字段是**代码侧**补上的验收判据（原代码没打它 ⇒ 本条 grep 恒 0 命中）。
   2. 改回安全精度（如 0.5 / 0.7），确认出现 `key_retry` 与 `key_retry_result ok=1`，
      且随后 `DISPATCH_OK` 递增、画面出 DLSS；
-     ★ 同时确认**不再**每帧刷 `ngx_hdr_decision`（该行在失败判据路径上已静默，见 §5 的 `log_decision`）。
+     ★ 同时确认**不再**每帧刷 `ngx_hdr_decision`（该行在失败判据路径上已静默，见 §3 的 `log_decision`）。
   3. 反向对照：不改任何设置，确认**不会**出现 `key_retry`（key 相同必须不重试）。
   4. 冻帧对照（第 1 条修复）：确认失败发生后**不出现**「画面冻在最后一帧最多 500ms」。
      机制：白名单 rc 不置 `g_release_all`，故 `fsr2_family_should_skip_draw` 那道 gate
@@ -369,13 +300,13 @@ create_feature ok=1 preset=0 rc=0x1
 - 反向对照：精度不变时**没有** `key_retry`（22:02:48 那次失败未触发重试）。
 - 冻帧对照：失败瞬间出现 `family_release … cleared=1`，未观察到冻帧；该行只打一次。
 
-复现方式：正常路径下 §4 的区间查询已能选到合法档位（实测 0.999 精度
+复现方式：正常路径下 §2 的区间查询已能选到合法档位（实测 0.999 精度
 `picked=DLAA` → `create_feature ok=1`），自然构造不出 `0xBAD00010`；
 2026-11-13 验证时用临时诊断开关强制走旧选档造失败，该开关验证后已删除、未进入提交。
 
 ---
 
-## 6. 焦点日志块只描述 FFX 直连路径，看不出后端与真正上屏的超分模型
+## 4. 焦点日志块只描述 FFX 直连路径，看不出后端与真正上屏的超分模型
 
 **现状**
 
@@ -395,7 +326,7 @@ create_feature ok=1 preset=0 rc=0x1
 
 **影响**
 
-- 「这局到底谁在超分」在日志里答不出来：FFX 模式写 `FSR`，但外接 OptiScaler 时最终上屏
+- 「这局到底谁在超分」在日志里答不出来：FFX 模式写 `FSR`，但外接实现时最终上屏
   实现可能不是桥；NGX 模式则完全没有摘要块，只能翻 5~6 行分散日志。
 - 装/换 `nvngx_dlss.dll` 后想确认「新的 DLSS 到底生效没有」，现在没有任何一手判据。
 
@@ -415,19 +346,10 @@ P1（只报事实，可独立验收）
 - 读版本需要 `version.dll`：`GetFileVersionInfoSizeW` → `GetFileVersionInfoW` → `VerQueryValueW`。
   新增 import 还是 `GetModuleHandleW` + `GetProcAddress`（不加 import）在 `CMakeLists.txt`
   里写明选择；两种都只能读**文件**版本，不代表已加载模块在内存里的版本。
-- provider 为 `external`（OptiScaler 之类别家实现）时打
+- provider 为 `external` 时打
   `UPSCALER : <模块文件名> 外部 NGX 实现（实际模型由该实现决定）`——不猜模型名。
 - 该块用 `log_focus_line()`（`cat::core` INFO），不要用 `log_ngx_error()`：
   `NgxLogLevel=0` 会把后者一起关掉，摘要不该受单后端日志等级影响。
-
-P2（可选，只报配置意图，与 P1 的测量行分开）
-
-- 已有现成读取器 `unsafe_dx11_on12_backend_selected()` `:9318-9357`：读
-  `<exe 目录>\OptiScaler.ini` 的 `[Upscalers] Dx11Upscaler`（带 250 ms 限流缓存）。
-  把「读值」抽成独立函数，块内加
-  `COEXIST : OptiScaler Dx11Upscaler=<值> source=optiscaler_ini(未核实)`。
-- 该行只能说明 OptiScaler 被**配置**成什么，不能说明它这局真的用了；不得与 P1 的测量行
-  混排（AGENTS.md §五.1：判据与动作分离，观测源必须是事实源头）。
 
 P3（可选）
 
@@ -525,9 +447,8 @@ DLSS，块里报的却是 AMD 的 FFX SDK 与 `FSR?`。读日志的人会据此�
   `if (g_inited) return g_available`，一旦成功就再不会走到这里；退避窗口只用于**失败**的 init。
   真正会重读的只有 `shutdown_all()` 之后重建的情形。
   `entry=<路径>` 是**真正被绑上 10 个 `NVSDK_NGX_D3D11_*` 导出的已装载模块**的完整路径，
-  与 `provider=<kind>`（从哪条路找来的）是两个不同事实：装 OptiScaler 时 `provider=` 常指向
-  DriverStore 那份 `_nvngx.dll`，而真正提供 `CreateFeature` 入口的是 `OptiScaler.dll`
-  —— 它劫持 `LoadLibraryW` 并返回自身 HMODULE。取不到打 `entry=(unknown)`。
+  与 `provider=<kind>`（从哪条路找来的）是两个不同事实：外部 provider 可能再转交给另一模块
+  提供 `CreateFeature` 入口。取不到打 `entry=(unknown)`。
   该值只在导出绑定成功的唯一出口写一次，故恒等于最终采纳的那个模块（中途失败的候选不写）。
 - `Dx11FsrBridge/CMakeLists.txt` 链 `version` 库。用直接链接而非 `GetProcAddress`：
   少一条运行期失败路径，且依赖在加载期就暴露，不必等第一次读版本时才发现
@@ -576,24 +497,17 @@ DLSS，块里报的却是 AMD 的 FFX SDK 与 `FSR?`。读日志的人会据此�
 - `hit.path` **未持久化**：只保留了有消费者的 `kind`，不引入没有读者的状态。
 
 **四、未做与理由**
-
-- **P2（读 OptiScaler.ini 的 `Dx11Upscaler`）不做**：`unsafe_dx11_on12_backend_selected()`
-  （`:9318-9357`）返回的是 bool 不是值，要改签名；且它读的是**游戏 exe 目录**的 ini，仓库里
-  只有 `SharedResources/OptiScaler/runtime/OptiScaler.ini` 这份模板（打包进
-  `payload\default_config\`），真实运行目录里的那份由谁写入、何时写入未核实。它报的也只是
-  「配置意图」不是事实，价值低。
 - **P3（未接管时打 `state=SKIP`）不做**：`ngx_core backend=`、`fsr2_translation_blocked` 等已有
   信号，新增块的收益不抵噪声。
 - **独立 NGX 摘要块不做**：把 `BACKEND :` 与 DLSS 版本并入现有行已覆盖主要痛点，独立块与
   焦点块内容重复。
 
-## 7. NGX 后端启动期崩溃缺乏可归因现场（两条 upstream issue 未结案）
+## 5. NGX 后端启动期崩溃缺乏可归因现场（一条 upstream issue 未结案）
 
 **现状**
 
-- 上游仓库有两条 open issue 报告崩溃，本仓库均**未能复现**，也未定位到确切的崩溃指令：
+- 上游仓库有一条 open issue 报告崩溃，本仓库**未能复现**，也未定位到确切的崩溃指令：
   - 「NVNGX 启动即退出」：把超分输入切成 `Ffx12Backend=ngx` 后，游戏在窗口出现前静默退出；切回 `native` 正常。用户提供的 `Dx11FsrBridge.log` 为 **0 字节**。
-  - 「OptiScaler 0xc0000005 @0x3e87a」：崩溃发生在随包分发的 OptiScaler 二进制内，与桥无关。
 - 已排除的说法（**不要重新提出**）：「日志 0 字节 ⇒ 崩在 `blog::init()` 之前 ⇒ 与 NGX 无关」。
   实测：`BridgeLogger` 全程不 flush，只有 writer 线程关闭文件时才 flush；`std::ofstream` 缓冲约 4090 字节。
   写 <4000 B 后硬杀进程，磁盘上确实是 0 字节；写 ≥4090 B 则落盘 4183 B。
@@ -604,7 +518,7 @@ DLSS，块里报的却是 AMD 的 FFX SDK 与 `FSR?`。读日志的人会据此�
 
 **影响**
 
-- 两条 issue 都无法给出「已修复」的结论。SEH 守卫把「进程直接消失且无现场」改成「该功能失败并可归因」，
+- 该 issue 尚不能给出「已修复」的结论。SEH 守卫把「进程直接消失且无现场」改成「该功能失败并可归因」，
   这是无论如何都正确的行为改变，但**不是**对该崩溃的证明。
 - 若真实成因在厂商 DLL 内部对状态的破坏（而非调用点 AV），SEH 只能把进程从崩溃变成「功能失效」，
   用户侧可能表现为 DLSS 不生效而游戏能进。
@@ -612,11 +526,11 @@ DLSS，块里报的却是 AMD 的 FFX SDK 与 `FSR?`。读日志的人会据此�
 **推进需要**
 
 1. 让报告者提供 Windows 事件日志 `Application Error` / `BEX64` 条目里的**故障模块名与故障偏移** ——
-   这一条能直接区分崩溃发生在桥内、厂商 DLL 内还是 OptiScaler 内。
+   这一条能直接区分崩溃发生在桥内还是厂商 DLL 内。
 2. 确认 `payload\Bridge\Dx11FsrBridge.log` 是**存在且 0 字节**，还是**根本不存在**（两者结论相反）。
 3. 确认 `payload\Bridge\ngx\` 下是否存在 `nvngx.log`（存在说明已走到 appinit 步骤，崩溃更晚）。
 4. 在能复现的机器上抓 `.dmp`（WER LocalDumps 即可），提供 `ExceptionAddress` 与栈。
-5. 拿到上述任一条后，按 §8.4 把结论从 E0 提升；在此之前任何「已修复」的说法都不成立。
+5. 拿到上述任一条后，用现场证据更新结论；在此之前任何「已修复」的说法都不成立。
 
 **相关代码位置**
 
@@ -628,7 +542,7 @@ DLSS，块里报的却是 AMD 的 FFX SDK 与 `FSR?`。读日志的人会据此�
 
 ---
 
-## 8. NGX 后端仍有厂商代码调用未加 SEH 守卫
+## 6. NGX 后端仍有厂商代码调用未加 SEH 守卫
 
 **现状**
 
@@ -656,39 +570,76 @@ DLSS，块里报的却是 AMD 的 FFX SDK 与 `FSR?`。读日志的人会据此�
 
 ---
 
-## 9. AutoExposure 与独立 MV Scale 尚未经过游戏实测
+## 7. jitter sequence 与渲染比例切换取证
 
 **现状**
 
-- 功能已实现并推送到 `feat/ngx-mv-scale-auto-exposure`：`NgxAutoExposure=1`、
-  `NgxMvLowRes=1`、`NgxMotionScaleX/Y=1.0` 为默认值；AutoExposure 与 MVLowRes 进入 NGX
-  CreateFeature flags，NGX 的 MV Scale 分别按 render width/height 与 X/Y 系数计算。
-- `NgxParamMapTest` 在 macOS C++20 未优化构建通过（3670 checks，0 failures）；
-  GitHub Windows `compile-check.yml` 的 NGX OFF / ON 两个 job 均成功，Run
-  `44708417243`，提交 `2441711`。
-- 尚无原神游戏会话验证新 flags 被实际 provider 接受，也没有画面 A/B 证明自动曝光或 MV 轴向缩放表现正确。
+- AutoExposure 与 MV Scale 已完成实机验证，原待办不再保留。
+- 当前待查问题是渲染比例切换后 MetalHUD 的 `Jitter Sequence Len` 可能锁存旧值；
+  D3DMetal bridge 侧已加入 raw/bridge jitter、reset、实例、渲染比例切换和周期取证。
 
-**影响**
+**AutoExposure / MV Scale 实测记录（2026-11-20，CrossOver Preview / WINE11）**
 
-- 编译与纯函数测试只能证明位映射和缩放公式，不能证明 NVIDIA NGX 或外部 NGX provider 的运行时契约、
-  运动方向及画面效果。
-- 外部 provider 可能忽略这些 CreateFeature flags，或采用不同的 MV 单位语义；不能把 NVIDIA NGX 的结果外推到外部实现。
+- 使用 Windows NGX ON 构建 DLL：667,648 B，SHA-256 `5112195f16a65c513cad458290a7f5d1c777f39504274aba9d7840a143c56895`。
+- 配置读取已被日志证实：`ngx_core auto_exposure=1 mv_low_res=1 motion_scale=1.000,1.000`。
+- 原始配置 `NgxProvider=auto` 下最终选择 external provider：
+  `provider pick mode=auto registry=load_failed external=1 decision=use_external`、
+  `provider resolved=loaded_module`、`init ok=1 available=1`。
+- `create_flags=0x4A`，包含 `MVLowRes|DepthInverted|AutoExposure`；`create_feature ok=1`，
+  且持续出现 `DISPATCH_OK`。`ngx_in` 显示默认 `MV Scale` 随 render 尺寸更新。
+- 第一次 `NgxProvider=nvidia` 测试失败（`rc=0x12 reason=load_failed`）是错误的强制 provider
+  配置，不作为功能失败证据。
 
-**推进需要**
+**后续 jitter 实测记录（2026-11-20，CrossOver Preview / WINE11）**
 
-1. 在 `Ffx12Backend=ngx`、`NgxProvider=nvidia` 下记录 `create_feature` 的 flags、
-   `ngx_in` 的实际 MV Scale、`create_feature ok` 与 `EvaluateFeature` 结果，确认默认配置能持续出图。
-2. 固定场景与分辨率，分别比较 `NgxAutoExposure=0/1`，记录高光、暗部和时域残影变化；不要同时改其它 NGX 参数。
-3. 固定其它设置，逐项验证 `(NgxMotionScaleX, NgxMotionScaleY)` 为 `(1,1)`、`(-1,1)`、
-   `(1,-1)`，确认水平和垂直运动方向，并记录实际 render 尺寸及 `ngx_in` 数值。
-4. 如需支持 `NgxProvider=external`，单独对该 provider 重复参数接收与画面验证，不把 NVIDIA 路径结论当作外部实现证据。
+- 诊断构建通过 GitHub Actions Run `44765235946`（提交 `f06c177`）生成；`JitterSequenceDiag`
+  记录 `scale_switch`、raw/bridge jitter、frame、reset、render size 和有限窗口周期。
+- 稳定周期实测：
+  - `0.3` / `1152x432`：`raw_period=88`、`bridge_period=88`；
+  - `0.4` / `1536x576`：`raw_period=50`、`bridge_period=50`；
+  - `0.5` / `1920x720`：`raw_period=32`、`bridge_period=32`；
+  - `0.6` / `2304x864`：`raw_period=22`；
+  - `0.7` / `2688x1008`：`raw_period=16`；
+  - `0.8` / `3072x1152`：`raw_period=12`；
+  - `0.9` / `3456x1296`：`raw_period=9`；
+  - `0.999` / `3836x1438`：`raw_period=8`。
+- `raw_period == bridge_period`，说明桥没有制造周期值；切回高档后真实 raw 周期恢复。
+- 重复切换 `0.3 -> 0.4 -> 0.5 -> 0.4 -> 0.3` 时，`0.3` 再次出现 `88`；
+  MetalHUD 可能继续显示旧的 `88`，但 bridge raw/bridge 周期记录可区分真实序列与 HUD 显示。
+- 每次比例切换都能观察到 `jitter_sequence window_reset reason=render_size`；
+  NGX `create_feature ok=1`，说明桥侧 reset/recreate 路径正常。
+- `0.2` 已从菜单移除（提交 `3889849`）；当前菜单日志为：
+  `scales=0.3,0.4,0.5,0.6,0.7,0.8,0.9,0.999`。
+
+**D3DMetal / MetalFX 二进制定位（2026-11-21）**
+
+- 当前 D3DMetal：
+  `.../external/D3DMetal.framework/Versions/A/D3DMetal`；
+  UUID `4418EC47-C3F0-3285-A056-15D87D785FFE`；
+  SHA-256 `a64950e8324cec32c9a442daa1fafd03823bd199fdd84fee5c73679b5fe86660`；
+  tool version `1266.8`、SDK `26.4`。
+- 已定位 D3DMetal temporal scaler 调用链：
+  `MDECommandList::temporalScale:withDescriptor:` →
+  `MPLCommandList::TemporalScale` →
+  `MPLTemporalScaler::ensureTemporalScaler`。
+- encode descriptor 有 `setJitterOffsetX/Y`、`setMotionVectorScaleX/Y`、`setReset`、
+  `inputContentWidth/Height`；CreationDescriptor 有 input/output width/height。
+- 系统 MetalFX SDK headers 没有公开 `Jitter Sequence Len` 或 `sequenceLength` API；
+  也没有发现 `MTLHUDService` / `com.apple.hud-label.metalfx.jitter.seqlen` 静态引用。
+  HUD 写入点很可能在 MetalFX 私有实现或独立 HUD 组件，尚未定位。
+
+**未解决 / 推进需要**
+
+1. 在 D3DMetal/MetalFX 私有 HUD 路径中定位 `Jitter Sequence Len` 的写入点；
+   当前只能确认 scaler 的 jitter/reset/尺寸接口，不能确认 HUD metric 的私有 ABI。
+2. 确认 MetalFX HUD 是否在 scaler resize/reset 后缓存旧 sequence length；
+   不修改系统 framework，不把 HUD 显示值当作真实 raw period。
 
 **相关代码**
 
-- `Dx11FsrBridge/NgxParamMap.cpp`：`map_create_flags` / `map_ngx_mv_scale`
-- `Dx11FsrBridge/NgxBackend.cpp`：`build_create_flags` / `flags_input_bits` / `dispatch`
-- `Dx11FsrBridge/Dx11FsrBridge.cpp`：NGX INI 配置读取
-- `Dx11FsrBridge/Dx11FsrBridge.package.ini`、`scripts/Deploy-Bridge.ps1`
+- `Dx11FsrBridge/JitterSequenceDiag.cpp`：周期、reset、实例和比例切换取证
+- `Dx11FsrBridge/RenderScaleMenu.cpp`：可用档位和 `render_scale_written`
+- D3DMetal binary：`MDECommandList::temporalScale:withDescriptor:` / `MPLTemporalScaler::ensureTemporalScaler`
 
 ---
 
@@ -703,17 +654,6 @@ DLSS，块里报的却是 AMD 的 FFX SDK 与 `FSR?`。读日志的人会据此�
 - 画质问题的根因：桥交给 NGX 的是 PQ 码值、不是线性光，`NgxHdr=auto` 在 HDR 会话解析成 HDR（`create_flags=0xB`，含 `IsHDR`），DLSS 按 HDR 管线解释这些码值 ⇒ 角色走动 / 转视角时大面积拖影。默认改为 `0`（`create_flags=0xA`，不置 `IsHDR`）后拖影大幅改善，`auto` 三态保留作逃生舱。三处同步：`load_config` 的兜底、`Dx11FsrBridge.package.ini:203`、`scripts/Deploy-Bridge.ps1:123`。
 - 维护者 2026-11-13 确认：鬼影 / 闪烁 / 锐度、HDR 与 SDR 两种会话、非 N 卡平台、多实例均已实测通过，并随 2.5.0 发布。
 - 现场自查判据：`ngx_core init ok=1 available=1`、`ngx_core create_feature ok=1`、`ngx_hdr_decision is_hdr=… src=…`。
-
-### 非 NVIDIA 平台借用外部 NGX 实现（2026-11-13）
-
-**解决提交**：`c67daf5`《feat(ngx): 支持从外部实现解析 NGX 入口，非 NVIDIA 平台经 OptiScaler 呈现 DLSS 接口》。
-
-**结论**：机制落地并经实机验证，随 2.5.0 发版。
-
-- `NgxProvider` 三态：`nvidia`（注册表 `HKLM\SOFTWARE\NVIDIA Corporation\Global\NGXCore` 的 `FullPath` → `_nvngx.dll`，失败即确定性失败）/ `external`（先 `LoadLibraryW(L"_nvngx.dll")`，OptiScaler 的加载钩子会返回它自己；再枚举已加载模块，找导出 `NVSDK_NGX_D3D11_Init_Ext` 的那个）/ `auto`（先 nvidia，失败再 external）。
-- 外部实现失败可重试：5 s 退避 × 12 次 ≈ 60 s，用尽才记 `reason=provider_missing` 并回落 native。
-- 画质契约：对方是 OptiScaler 自带的 FSR 2.2.1（D3D11 静态 FFX），**不读** `MV_Scale_X/Y`（按 UV 单位处理运动矢量），`IsHDR` 直接决定它走不走 HDR 分支。注意 `40a6d8e` 的提交说明写过「OptiScaler 会把 IsHDR 改回 1」⇒ 桥把 `NgxHdr` 默认改成 `0` 只覆盖**绕过** OptiScaler 的路径，外部实现路径上的 HDR 判定仍归 OptiScaler 的 ini。
-- 取证行：`ngx_core provider_mode=…`（配置要什么）与 `ngx_core provider resolved=… module=…`（实际用了谁，kind ∈ `nvidia_registry` / `nvngx_load` / `loaded_module`）。
 
 ### `Ffx12SingleInstance` 缺省 0 + NGX 后端强制单实例（2026-11-13 复核）
 
@@ -733,7 +673,7 @@ DLSS，块里报的却是 AMD 的 FFX SDK 与 `FSR?`。读日志的人会据此�
 
 **结论**：安装路径上「auto 在 RTX 上选中 ngx 却没有运行时」已不存在，auto 正向路径实测通过，随 2.5.0 发版。
 
-- 安装器与桥共用一条判据（`srinput::uses_ngx()`：`ngx`，或 `auto` 且判为 RTX），补文件与选后端不再两套口径；落点两处（桥的特征目录 `payload\Bridge\ngx\` 与 OptiScaler 的组件目录），只下一次网。
+- 安装器与桥共用一条判据（`srinput::uses_ngx()`：`ngx`，或 `auto` 且判为 RTX），补文件与选后端不再两套口径；运行时写入桥的特征目录 `payload\Bridge\ngx\`，只下载一次。
 - 主页新增「超分输入类型」行（界面 Auto / FFX / NVNGX ↔ ini `auto` / `native` / `ngx`），选完立刻写回**已安装**的 `Dx11FsrBridge.ini`；`scripts/Deploy-Bridge.ps1` 仍故意不写该键，保留用户原值。
 - 非 RTX 想借外部实现呈现 DLSS 接口时，仍须显式选 NVNGX（写 `Ffx12Backend=ngx`）。
 - 仍然成立的一条（**刻意保留，不算缺陷**）：运行时被手工删掉时，ngx 会 `init ok=0` 并逐帧 fail-open 到游戏原生 FSR2，不会自动改走 native —— 避免出现第二套可用性判据（`AGENTS.md` §五.1）。
@@ -763,7 +703,7 @@ DLSS，块里报的却是 AMD 的 FFX SDK 与 `FSR?`。读日志的人会据此�
   ③ `family_release` 在失败瞬间解除 family skip 且**只打一次**（无日志洪水）；
   ④ **key 相同不重试**（22:02:48）；⑤ **key 变化才重试并成功**（22:03:13）；
   ⑥ **全程无需重启游戏**。
-- 注意：本次是通过诊断开关构造的失败。正常路径下 §4 的区间查询已能选到合法档位
+- 注意：本次是通过诊断开关构造的失败。正常路径下 §2 的区间查询已能选到合法档位
   （同日 21:51 实测 0.999 精度 `picked=DLAA` → `create_feature ok=1`），
   因此该重试路径在未注入失败的会话中通常不会触发 —— 这是预期行为，不是未生效。
 
@@ -876,7 +816,7 @@ DLSS，块里报的却是 AMD 的 FFX SDK 与 `FSR?`。读日志的人会据此�
 
 **解决提交**：《chore(ngx): NVIDIA NGX 头随仓库分发，发布构型启用 NGX 后端》（`git log --oneline --grep=chore(ngx)` 可定位）。
 
-**结论**：采用与 OptiScaler 相同的做法 —— 把编译所需的 NVIDIA NGX 头随仓库分发，发布包因此带上 NGX 后端。
+**结论**：把编译所需的 NVIDIA NGX 头随仓库分发，发布包因此带上 NGX 后端。
 
 - `Dx11FsrBridge/third_party/ngx/` 现有固定 commit（`a291cc7` / DLSS 310.7.0）的 `nvsdk_ngx_defs.h`、`nvsdk_ngx_params.h`、许可原文 `NVIDIA-SDK-LICENSE.txt` 与 `NOTICE.md`（含字节数与 SHA-256 表）。
 - `tools/Fetch-NgxHeaders.ps1` 由「下载器」变成「下载/校验/升级三用」：`-Verify` 只读本地按固定哈希校验（CI 用它，手改头文件会直接失败），`-Update` 只打印新哈希。
