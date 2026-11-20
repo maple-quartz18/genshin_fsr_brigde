@@ -256,7 +256,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $kit = Join-Path $env:GITHUB_WORKSPACE 'OptiScaler-src\external\FidelityFX-SDK-v2\Kits\FidelityFX'
           cmake -S Dx11FsrBridge -B build-on-diag -G "NMake Makefiles" `
-              -DCMAKE_BUILD_TYPE=Debug `
+              -DCMAKE_BUILD_TYPE=Release `
               -DDX11FSRBRIDGE_ENABLE_NGX=ON `
               -DDX11FSRBRIDGE_DIAGNOSTICS=ON `
               -DFFX_SDK_KIT_ROOT="$kit"
